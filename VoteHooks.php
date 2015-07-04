@@ -130,7 +130,9 @@ class VoteHooks {
 			}
 		} elseif ( $magicWordId == 'NUMBEROFVOTESPAGE' ) {
 			$ret = VoteHooks::getNumberOfVotesPage( $parser->getTitle() );
-		}
+		} elseif ( $magicWordId == 'SCOREPAGE' ) {
+            $ret = VoteHooks::getScorePage( $parser->getTitle() );
+        }
 
 		return true;
 	}
@@ -166,6 +168,37 @@ class VoteHooks {
 			return $voteCount;
 		}
 	}
+	
+	/**
+	 * Main function to get the score for a specific page
+	 * @param Title $title: page to get votes for
+	 * @return float: score for the given page
+	 */
+	public static function getScorePage( Title $title ) {
+		global $wgMemc;
+		$id = $title->getArticleID();
+
+		$key = wfMemcKey( 'vote', 'magic-word-score-page', $id );
+		$data = $wgMemc->get( $key );
+
+		if ( $data ) {
+			return $data;
+		} else {
+			$dbr = wfGetDB( DB_SLAVE );
+
+			$score = (float)$dbr->selectField(
+					'Vote',
+					'AVG(vote_value) AS voteavg',
+					array( 'vote_page_id' => $id ),
+					__METHOD__
+			);
+
+			$wgMemc->set( $key, $score, 3600 );
+
+			return $score;
+		}
+	}
+
 
 	/**
 	 * Hook for parser function {{NUMBEROFVOTESPAGE:<page>}}
@@ -185,6 +218,22 @@ class VoteHooks {
 	}
 
 	/**
+	 * Hook for parser function {{SCOREPAGE:<page>}}
+	 * @param Parser $parser
+	 * @param string $pagename
+	 * @return float
+	 */
+	static function getScorePageParser( $parser, $pagename ) {
+			$title = Title::newFromText( $pagename );
+
+			if ( !$title instanceof Title ) {
+					$title = $parser->getTitle();
+			}
+
+			return VoteHooks::getScorePage( $title );
+	}
+
+	/**
 	 * Register the magic word ID for {{NUMBEROFVOTES}} and {{NUMBEROFVOTESPAGE}}
 	 *
 	 * @param array $variableIds Array of pre-existing variable IDs
@@ -193,6 +242,8 @@ class VoteHooks {
 	public static function registerVariableId( &$variableIds ) {
 		$variableIds[] = 'NUMBEROFVOTES';
 		$variableIds[] = 'NUMBEROFVOTESPAGE';
+		$variableIds[] = 'SCOREPAGE';
+		
 		return true;
 	}
 
@@ -206,6 +257,17 @@ class VoteHooks {
 		$parser->setFunctionHook( 'NUMBEROFVOTESPAGE', 'VoteHooks::getNumberOfVotesPageParser', Parser::SFH_NO_HASH );
 		return true;
 	}
+	
+	/**
+	 * Hook to setup parser function {{SCOREPAGE:<page>}}
+	 * @param Parser $parser
+	 * @return boolean
+	 */
+	static function setupScorePageParser( &$parser ) {
+		$parser->setFunctionHook( 'SCOREPAGE', 'VoteHooks::getScorePageParser', SFH_NO_HASH );
+		return true;
+	}
+
 
 	/**
 	 * Creates the necessary database table when the user runs
